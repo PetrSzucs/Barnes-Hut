@@ -172,22 +172,37 @@ class QuadTree
 		centerOfMass.Y = (centerOfMass.Y * (totalMass - particle.Mass) + particle.Position.Y * particle.Mass) / totalMass;
 	}
 
-	public Vector CalculateForce(Particle particle, double theta = 5)
+	public Vector CalculateForce(Particle particle, double theta = 0.5)
 	{
-		if (particles.Count == 0 && subtrees == null)
+		// Pokud není v tomto kvadrantu žádná hmota, návrat nulové síly
+		if (totalMass == 0)
 			return new Vector(0, 0);
 
-		double distance = Math.Sqrt(Math.Pow(particle.Position.X - centerOfMass.X, 2) + Math.Pow(particle.Position.Y - centerOfMass.Y, 2));
+		// Neber v úvahu kvadrant, pokud obsahuje pouze danou částici
+		if (particles.Count == 1 && particles[0].Id == particle.Id)
+			return new Vector(0, 0);
+
+		// Výpočet vzdálenosti ke středu hmotnosti
+		double dx = centerOfMass.X - particle.Position.X;
+		double dy = centerOfMass.Y - particle.Position.Y;
+		double distance = Math.Sqrt(dx * dx + dy * dy) + 1e-5; // malý epsilon kvůli stabilitě
 		double size = Math.Max(boundary.Width, boundary.Height);
 
-		if (subtrees == null || size / distance < theta)
+		// Poměr rozměru kvadrantu k vzdálenosti (Barnes–Hut podmínka)
+		double ratio = size / distance;
+
+		if (subtrees == null || ratio < theta)
 		{
-			double forceMagnitude = (particle.Mass * totalMass) / (distance * distance + 1e-5); // přidáno epsilon pro stabilitu
-			Vector direction = new Vector(centerOfMass.X - particle.Position.X, centerOfMass.Y - particle.Position.Y).Normalize();
+			// Použij aproximaci - celý podstrom jako jeden objekt
+			double G = 1.0; // gravitační konstanta (pro jednoduchost)
+			double forceMagnitude = G * particle.Mass * totalMass / (distance * distance);
+
+			Vector direction = new Vector(dx / distance, dy / distance);
 			return new Vector(direction.X * forceMagnitude, direction.Y * forceMagnitude);
 		}
 		else
 		{
+			// Rekurzivně spočítej síly ze všech podstromů
 			Vector totalForce = new Vector(0, 0);
 			foreach (var subtree in subtrees)
 			{
@@ -197,10 +212,43 @@ class QuadTree
 		}
 	}
 
+
+	//public Vector CalculateForce(Particle particle, double theta = 5)
+	//{
+	//	if (particles.Count == 0 && subtrees == null)
+	//		return new Vector(0, 0);
+
+	//	double distance = Math.Sqrt(Math.Pow(particle.Position.X - centerOfMass.X, 2) + Math.Pow(particle.Position.Y - centerOfMass.Y, 2));
+	//	double size = Math.Max(boundary.Width, boundary.Height);
+
+	//	if (subtrees == null || size / distance < theta)
+	//	{
+	//		double forceMagnitude = (particle.Mass * totalMass) / (distance * distance + 1e-5); // přidáno epsilon pro stabilitu
+	//		Vector direction = new Vector(centerOfMass.X - particle.Position.X, centerOfMass.Y - particle.Position.Y).Normalize();
+	//		return new Vector(direction.X * forceMagnitude, direction.Y * forceMagnitude);
+	//	}
+	//	else
+	//	{
+	//		Vector totalForce = new Vector(0, 0);
+	//		foreach (var subtree in subtrees)
+	//		{
+	//			totalForce += subtree.CalculateForce(particle, theta);
+	//		}
+	//		return totalForce;
+	//	}
+	//}
+
 	public void Draw(Graphics g)
 	{
 		g.DrawRectangle(Pens.Red, boundary.X, boundary.Y, boundary.Width, boundary.Height);
-		g.DrawString($"D:{depth}", SystemFonts.DefaultFont, Brushes.Green, boundary.X, boundary.Y);
+		//g.DrawString($"{totalMass}", SystemFonts.DefaultFont, Brushes.Green, (float)centerOfMass.X-0, (float)centerOfMass.Y-0);
+
+		if (totalMass > 0)
+		{
+			double size = Math.Max(boundary.Width, boundary.Height);
+			g.DrawString($"s/d={(size / Math.Sqrt(Math.Pow(centerOfMass.X - boundary.X, 2) + Math.Pow(centerOfMass.Y - boundary.Y, 2))):F2}",
+					SystemFonts.DefaultFont, Brushes.Gray, (float)centerOfMass.X + 5, (float)centerOfMass.Y + 5);
+		}
 
 		if (subtrees != null)
 		{
@@ -446,8 +494,9 @@ class ParticleForm : Form
 		// Vykreslení částic
 		foreach (var particle in particles)
 		{
-			output=string.Format("{0}\n {1}, {2}",particle.Id.ToString(),particle.Position.X.ToString(), particle.Position.Y.ToString());
+			output=string.Format("{0} {1} {2} {3}",particle.Id.ToString(),particle.Position.X.ToString(), particle.Position.Y.ToString(), particle.Mass.ToString());
 			g.FillEllipse(Brushes.Blue, (float)particle.Position.X - 2, (float)particle.Position.Y - 2, 4, 4);
+			//g.DrawString($"{particle.Mass}", SystemFonts.DefaultFont, Brushes.Green, (float)particle.Position.X-5, (float)particle.Position.Y-15);
 			//g.DrawString(output, this.Font, Brushes.Black, (float)particle.Position.X, (float)particle.Position.Y);
 		}
 	}
@@ -457,32 +506,32 @@ class Program
 {
 	static void Main()
 	{
-		List<Particle> particles = new List<Particle>();
-		int pocetCastic = 50;
-		int xMin = 0, yMin = 0;
-		int xMax = 850, yMax = 850;
-		int xmin, ymin;
-		Random rnd = new Random();
-		for (int i = 0; i<pocetCastic; i++)
-		{
-			xmin=rnd.Next(xMin, xMax);
-			ymin=rnd.Next(yMin, yMax);
-			particles.Add(new Particle(i,new Vector(xmin, ymin), new Vector(0, 0), 10));
-		}
+		//List<Particle> particles = new List<Particle>();
+		//int pocetCastic = 50;
+		//int xMin = 0, yMin = 0;
+		//int xMax = 850, yMax = 850;
+		//int xmin, ymin;
+		//Random rnd = new Random();
+		//for (int i = 0; i<pocetCastic; i++)
+		//{
+		//	xmin=rnd.Next(xMin, xMax);
+		//	ymin=rnd.Next(yMin, yMax);
+		//	particles.Add(new Particle(i,new Vector(xmin, ymin), new Vector(0, 0), 10));
+		//}
 
-		//// Inicializace částic a prostoru
-		//List<Particle> particles = new List<Particle>
-		//		{
-		//				new Particle(1,new Vector(10, 100), new Vector(0, 0), 10),
-		//				new Particle(2,new Vector(20, 150), new Vector(0, 0), 10),
-		//				new Particle(3,new Vector(300, 300), new Vector(0, 0), 10),
-		//				new Particle(4,new Vector(50, 50), new Vector(0, 0), 10),
-		//				//new Particle(5,new Vector(150, 120), new Vector(0, 0), 10),
-		//				//new Particle(6,new Vector(220, 180), new Vector(0, 0), 10),
-		//				//new Particle(new Vector(330, 330), new Vector(0, 0), 10),
-		//				//new Particle(new Vector(50, 60), new Vector(0, 0), 10),
-		//				//new Particle(5,new Vector(75, 220), new Vector(0, 0), 10)
-		//		};
+		// Inicializace částic a prostoru
+		List<Particle> particles = new List<Particle>
+				{
+						new Particle(1,new Vector(10, 100), new Vector(0, 0), 10),
+						new Particle(2,new Vector(20, 150), new Vector(0, 0), 10),
+						new Particle(3,new Vector(300, 300), new Vector(0, 0), 10),
+						new Particle(4,new Vector(50, 50), new Vector(0, 0), 10),
+						//new Particle(5,new Vector(150, 120), new Vector(0, 0), 10),
+						//new Particle(6,new Vector(220, 180), new Vector(0, 0), 10),
+						new Particle(5,new Vector(330, 330), new Vector(0, 0), 10),
+						new Particle(6,new Vector(50, 60), new Vector(0, 0), 10),
+						//new Particle(5,new Vector(75, 220), new Vector(0, 0), 10)
+				};
 
 		QuadTree quadTree = new QuadTree(1,new RectangleF(0, 0, 850, 850));
 
