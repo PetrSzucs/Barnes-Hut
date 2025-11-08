@@ -11,7 +11,7 @@ class ParticleForm : Form
 	private PhysicsEngine physics;
 	private Timer timer;
 	private Random rnd = new Random();
-	private ScenarioType scenario = ScenarioType.SunSystem; // vybraný scénář
+	private ScenarioType scenario = ScenarioType.Benchmark; // vybraný scénář
 
 	public ParticleForm(List<Particle> particles, QuadTree quadTree, PhysicsEngine physics)
 	{
@@ -24,15 +24,22 @@ class ParticleForm : Form
 		Text = "Barnes-Hut Simulation";
 
 		// Náhodné počáteční rychlosti
-		foreach (var p in particles)
-		{
+		//foreach (var p in particles)
+		//{
 			//p.Velocity = new Vector(rnd.NextDouble() * 2 - 1, rnd.NextDouble() * 2 - 1);
-		}
+		//}
 
 		timer = new Timer { Interval = 16 }; // cca 60 FPS
 		timer.Tick += (s, e) => { StepSimulation(); Invalidate(); };
-		timer.Start();
 		InitializeParticles();
+
+		// 🧠 Zastavíme vykreslování během benchmarku
+		timer.Stop();
+
+		RunBenchmark(200);
+
+		// 🔄 Po benchmarku můžeme spustit animaci
+		timer.Start();
 	}
 
 	enum ScenarioType
@@ -40,7 +47,8 @@ class ParticleForm : Form
 		SunSystem,
 		RandomCluster,
 		TwoGalaxies,
-		Explosion
+		Explosion,
+		Benchmark      // nový scénář pro měření výkonu
 	}
 
 
@@ -66,15 +74,44 @@ class ParticleForm : Form
 			case ScenarioType.Explosion:
 				CreateExplosion(rnd);
 				break;
+
+			case ScenarioType.Benchmark:
+				CreateBenchmarkScenario();
+				break;
 		}
 	}
+
+	private void CreateBenchmarkScenario()
+	{
+		int gridSize = 100;       // 100 × 100 = 10 000 částic
+		float spacing = 8f;       // vzdálenost mezi částicemi
+		float startX = 50f;
+		float startY = 50f;
+		float mass = 1f;
+
+		particles.Clear();
+		int id = 0;
+
+		for (int y = 0; y < gridSize; y++)
+		{
+			for (int x = 0; x < gridSize; x++)
+			{
+				Vector position = new Vector(startX + x * spacing, startY + y * spacing);
+				Vector velocity = new Vector(0, 0);
+				particles.Add(new Particle(id++, position, velocity, mass));
+			}
+		}
+
+		Console.WriteLine($"Benchmark scénář vytvořen: {particles.Count} částic");
+	}
+
 
 	private void CreateSunSystem(Random rnd)
 	{
 		Particle sun = new Particle(0, new Vector(425, 425), new Vector(0, 0), 10000);
 		particles.Add(sun);
 
-		int planetCount = 1000;
+		int planetCount = 5000;
 		double G = 1;
 
 		for (int i = 0; i < planetCount; i++)
@@ -166,22 +203,121 @@ class ParticleForm : Form
 		}
 	}
 
+	private void RebuildTree()
+	{
+		if (quadTree == null)
+			return;
+
+		quadTree.Clear();
+
+		foreach (var p in particles)
+		{
+			// ✅ Zajistí, že se částice vejde do oblasti stromu
+			quadTree.EnsureContains(p);
+
+			// ✅ Vloží částici do stromu
+			quadTree.Insert(p);
+		}
+	}
+
+	/*private void RebuildTree()
+	{
+		quadTree.Clear(); // zruší staré rozdělení (viz úprava níže)
+
+		// Pokud částice vyletěly mimo, uprav hranice
+		RectangleF newBounds = quadTree.Bounds;
+		bool needsResize = false;
+
+		foreach (var p in particles)
+		{
+			if (!newBounds.Contains((float)p.Position.X, (float)p.Position.Y))
+			{
+				needsResize = true;
+				break;
+			}
+		}
+
+		if (needsResize)
+		{
+			// Rozšíříme hranice kolem všech částic
+			float minX = float.MaxValue, minY = float.MaxValue;
+			float maxX = float.MinValue, maxY = float.MinValue;
+
+			foreach (var p in particles)
+			{
+				if (p.Position.X < minX) minX = (float)p.Position.X;
+				if (p.Position.Y < minY) minY = (float)p.Position.Y;
+				if (p.Position.X > maxX) maxX = (float)p.Position.X;
+				if (p.Position.Y > maxY) maxY = (float)p.Position.Y;
+			}
+
+			float width = maxX - minX;
+			float height = maxY - minY;
+			quadTree.Resize(new RectangleF(minX, minY, width, height));
+		}
+
+		// znovu vlož všechny částice
+		foreach (var p in particles)
+			quadTree.Insert(p);
+	}
+	*/
+
 
 	private void StepSimulation()
 	{
-		quadTree = new QuadTree(1, new RectangleF(0, 0, 850, 850));
-		// 1️⃣ Zvětši hranice podle všech částic
-		foreach (var p in particles)
-			quadTree.EnsureContains(p);
+		//quadTree = new QuadTree(1, new RectangleF(0, 0, 850, 850));
+		//// 1️⃣ Zvětši hranice podle všech částic
+		//foreach (var p in particles)
+		//	quadTree.EnsureContains(p);
 
-		// 2️⃣ Postav znovu strom pro aktuální rozložení
-		quadTree = new QuadTree(1, quadTree.boundary);
-		foreach (var p in particles)
-			quadTree.Insert(p);
+		//// 2️⃣ Postav znovu strom pro aktuální rozložení
+		//quadTree = new QuadTree(1, quadTree.boundary);
+		//foreach (var p in particles)
+		//	quadTree.Insert(p);
 
+		RebuildTree();
 		// 3️⃣ Aktualizuj pozice částic
 		physics.Update(particles, quadTree);		
 	}
+
+	private void RunBenchmark(int iterations)
+	{
+		// Zastavíme timer a vypneme překreslování
+		timer.Stop();
+
+		// Uložíme původní stav částic, abychom je mohli po testu obnovit
+		var originalParticles = particles.Select(p => new Particle(
+				p.Id,
+				new Vector(p.Position.X, p.Position.Y),
+				new Vector(p.Velocity.X, p.Velocity.Y),
+				p.Mass)).ToList();
+
+		var stopwatch = new System.Diagnostics.Stopwatch();
+		stopwatch.Start();
+
+		for (int i = 0; i < iterations; i++)
+		{
+			// Klasický krok simulace bez vykreslování
+			StepSimulation();
+		}
+
+		stopwatch.Stop();
+
+		// Obnovíme částice do původního stavu
+		particles = originalParticles;
+
+		// Výsledek
+		MessageBox.Show(
+				$"Benchmark dokončen.\nPočet iterací: {iterations}\nČas: {stopwatch.ElapsedMilliseconds} ms",
+				"Výkon simulace",
+				MessageBoxButtons.OK,
+				MessageBoxIcon.Information
+		);
+
+		// Znovu spustíme timer (grafickou simulaci)
+		timer.Start();
+	}
+
 
 	protected override void OnPaint(PaintEventArgs e)
 	{

@@ -1,5 +1,6 @@
 ﻿using System.Collections.Generic;
 using System.Drawing;
+using System.Numerics;
 
 public class QuadTree
 {
@@ -9,6 +10,7 @@ public class QuadTree
 	private QuadTree[] subtrees;
 	private Vector centerOfMass;
 	private double totalMass;
+	public RectangleF Bounds => boundary;
 
 	public QuadTree(int capacity, RectangleF boundary)
 	{
@@ -18,6 +20,26 @@ public class QuadTree
 		this.subtrees = null;
 		this.centerOfMass = new Vector(0, 0);
 		this.totalMass = 0;
+	}
+
+
+	public void Clear()
+	{
+		particles.Clear();
+		if (subtrees != null)
+		{
+			foreach (var s in subtrees)
+				s?.Clear();
+		}
+		subtrees = null;
+		totalMass = 0;
+		centerOfMass = new Vector(0, 0);
+	}
+
+	public void Resize(RectangleF newBounds)
+	{
+		boundary = newBounds;
+		Clear();
 	}
 
 	public bool Insert(Particle particle)
@@ -108,13 +130,37 @@ public class QuadTree
 
 	public void EnsureContains(Particle particle)
 	{
-		// pokud je částice mimo, expanduj dokud se nevejde
-		while (!boundary.Contains((float)particle.Position.X, (float)particle.Position.Y))
+		var pos = particle.Position;
+
+		// Pokud částice neleží v aktuální oblasti, expanduj
+		if (!boundary.Contains((float)pos.X, (float)pos.Y))
 		{
-			ExpandBoundary(particle.Position);
+			ExpandBoundary(pos.X, pos.Y);
 		}
 	}
 
+	private void ExpandBoundary(double x, double y)
+	{
+		// Aktuální hranice
+		float minX = boundary.X;
+		float minY = boundary.Y;
+		float maxX = boundary.X + boundary.Width;
+		float maxY = boundary.Y + boundary.Height;
+
+		// Dokud bod neleží uvnitř, rozšiřuj 2×
+		while (!boundary.Contains((float)x, (float)y))
+		{
+			float newWidth = boundary.Width * 2;
+			float newHeight = boundary.Height * 2;
+
+			float newX = boundary.X - boundary.Width / 2;
+			float newY = boundary.Y - boundary.Height / 2;
+
+			boundary = new RectangleF(newX, newY, newWidth, newHeight);
+		}
+	}
+
+	/*
 	private void ExpandBoundary(Vector pos)
 	{
 		float x = boundary.X;
@@ -168,7 +214,7 @@ public class QuadTree
 			foreach (var subtree in this.subtrees)
 				subtree.TransferParticlesTo(target);
 		}
-	}
+	}*/
 
 	public void Draw(Graphics g)
 	{
