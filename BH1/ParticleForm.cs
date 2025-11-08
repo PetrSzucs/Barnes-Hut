@@ -1,12 +1,15 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Numerics;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using Timer = System.Windows.Forms.Timer;
 
 class ParticleForm : Form
 {
 	private List<Particle> particles;
+	private float simulationTime = 0f;
 	private QuadTree quadTree;
 	private PhysicsEngine physics;
 	private Timer timer;
@@ -96,8 +99,8 @@ class ParticleForm : Form
 		{
 			for (int x = 0; x < gridSize; x++)
 			{
-				Vector position = new Vector(startX + x * spacing, startY + y * spacing);
-				Vector velocity = new Vector(0, 0);
+				Vector2 position = new Vector2(startX + x * spacing, startY + y * spacing);
+				Vector2 velocity = Vector2.Zero;
 				particles.Add(new Particle(id++, position, velocity, mass));
 			}
 		}
@@ -123,12 +126,12 @@ class ParticleForm : Form
 			double y = sun.Position.Y + orbitRadius * Math.Sin(angle);
 
 			double v = Math.Sqrt(G * sun.Mass / orbitRadius);
-			Vector velocity = new Vector(-v * Math.Sin(angle), v * Math.Cos(angle));
+			Vector2 velocity = new Vector2((float)(-v * Math.Sin(angle)), (float)(v * Math.Cos(angle)));
 
-			velocity.X += (rnd.NextDouble() - 0.5) * 0.1;
-			velocity.Y += (rnd.NextDouble() - 0.5) * 0.1;
+			velocity.X += (float)((rnd.NextDouble() - 0.5) * 0.1);
+			velocity.Y += (float)((rnd.NextDouble() - 0.5) * 0.1);
 
-			particles.Add(new Particle(i + 1, new Vector(x, y), velocity, 1));
+			particles.Add(new Particle(i + 1, new Vector2((float)x, (float)y), velocity, 1));
 		}
 	}
 
@@ -143,7 +146,7 @@ class ParticleForm : Form
 			double vy = (rnd.NextDouble() - 0.5) * 0.5;
 			double mass = 1;
 
-			particles.Add(new Particle(i, new Vector(x, y), new Vector(vx, vy), mass));
+			particles.Add(new Particle(i, new Vector2((float)x, (float)y), new Vector2((float)vx, (float)vy), (float)mass));
 		}
 	}
 
@@ -156,8 +159,8 @@ class ParticleForm : Form
 		Vector centerA = new Vector(325, 425);
 		Vector centerB = new Vector(525, 425);
 
-		Particle coreA = new Particle(0, centerA, new Vector(0, 0.5), 2000);
-		Particle coreB = new Particle(1, centerB, new Vector(0, -0.5), 2000);
+		Particle coreA = new Particle(0, centerA, new Vector(0, 0.5f), 2000);
+		Particle coreB = new Particle(1, centerB, new Vector(0, -0.5f), 2000);
 
 		particles.Add(coreA);
 		particles.Add(coreB);
@@ -169,34 +172,34 @@ class ParticleForm : Form
 			double xA = centerA.X + rA * Math.Cos(angleA);
 			double yA = centerA.Y + rA * Math.Sin(angleA);
 			double vA = Math.Sqrt(G * coreA.Mass / rA);
-			Vector vVecA = new Vector(-vA * Math.Sin(angleA), vA * Math.Cos(angleA));
+			Vector2 vVecA = new Vector2((float)(-vA * Math.Sin(angleA)),(float)( vA * Math.Cos(angleA)));
 			vVecA += coreA.Velocity;
-			particles.Add(new Particle(2 + i, new Vector(xA, yA), vVecA, 1));
+			particles.Add(new Particle(2 + i, new Vector2((float)xA, (float)yA), vVecA, 1));
 
 			double rB = 50 + rnd.NextDouble() * 150;
 			double angleB = rnd.NextDouble() * Math.PI * 2;
 			double xB = centerB.X + rB * Math.Cos(angleB);
 			double yB = centerB.Y + rB * Math.Sin(angleB);
 			double vB = Math.Sqrt(G * coreB.Mass / rB);
-			Vector vVecB = new Vector(-vB * Math.Sin(angleB), vB * Math.Cos(angleB));
+			Vector2 vVecB = new Vector2(-(float)(vB * Math.Sin(angleB)), (float)(vB * Math.Cos(angleB)));
 			vVecB += coreB.Velocity;
-			particles.Add(new Particle(2 + galaxySize + i, new Vector(xB, yB), vVecB, 1));
+			particles.Add(new Particle(2 + galaxySize + i, new Vector2((float)xB, (float)yB), vVecB, 1));
 		}
 	}
 
 	private void CreateExplosion(Random rnd)
 	{
 		int count = 1000;
-		Vector center = new Vector(425, 425);
+		Vector2 center = new Vector(425, 425);
 
 		for (int i = 0; i < count; i++)
 		{
-			double angle = rnd.NextDouble() * Math.PI * 2;
-			double speed = 2 + rnd.NextDouble() * 3;
+			float angle = (float)(rnd.NextDouble() * Math.PI * 2);
+			float speed = (float)(2 + rnd.NextDouble() * 3);
 
-			Vector velocity = new Vector(
-					speed * Math.Cos(angle),
-					speed * Math.Sin(angle)
+			Vector2 velocity = new Vector2(
+					(float)(speed * Math.Cos(angle)),
+					(float)(speed * Math.Sin(angle))
 			);
 
 			particles.Add(new Particle(i, center, velocity, 1));
@@ -275,9 +278,10 @@ class ParticleForm : Form
 		//foreach (var p in particles)
 		//	quadTree.Insert(p);
 
-		RebuildTree();
 		// 3️⃣ Aktualizuj pozice částic
-		physics.Update(particles, quadTree);		
+		physics.Update(particles, quadTree, simulationTime);
+		simulationTime += (float)physics.DeltaTime; // globální krok, kdy kontrolujeme aktualizace
+		RebuildTree();
 	}
 
 	private void RunBenchmark(int iterations)
@@ -288,8 +292,8 @@ class ParticleForm : Form
 		// Uložíme původní stav částic, abychom je mohli po testu obnovit
 		var originalParticles = particles.Select(p => new Particle(
 				p.Id,
-				new Vector(p.Position.X, p.Position.Y),
-				new Vector(p.Velocity.X, p.Velocity.Y),
+				new Vector2(p.Position.X, p.Position.Y),
+				new Vector2(p.Velocity.X, p.Velocity.Y),
 				p.Mass)).ToList();
 
 		var stopwatch = new System.Diagnostics.Stopwatch();

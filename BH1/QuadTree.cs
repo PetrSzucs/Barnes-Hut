@@ -8,8 +8,8 @@ public class QuadTree
 	public RectangleF boundary;
 	private List<Particle> particles;
 	private QuadTree[] subtrees;
-	private Vector centerOfMass;
-	private double totalMass;
+	private Vector2 centerOfMass;
+	private float totalMass;
 	public RectangleF Bounds => boundary;
 
 	public QuadTree(int capacity, RectangleF boundary)
@@ -18,7 +18,7 @@ public class QuadTree
 		this.boundary = boundary;
 		this.particles = new List<Particle>();
 		this.subtrees = null;
-		this.centerOfMass = new Vector(0, 0);
+		this.centerOfMass = Vector2.Zero;
 		this.totalMass = 0;
 	}
 
@@ -33,7 +33,7 @@ public class QuadTree
 		}
 		subtrees = null;
 		totalMass = 0;
-		centerOfMass = new Vector(0, 0);
+		centerOfMass = Vector2.Zero;
 	}
 
 	public void Resize(RectangleF newBounds)
@@ -103,61 +103,97 @@ public class QuadTree
 		centerOfMass.X = (centerOfMass.X * (totalMass - particle.Mass) + particle.Position.X * particle.Mass) / totalMass;
 		centerOfMass.Y = (centerOfMass.Y * (totalMass - particle.Mass) + particle.Position.Y * particle.Mass) / totalMass;
 	}
-
-	public Vector CalculateForce(Particle particle, double theta)
+	public Vector2 CalculateForce(Particle p, float theta)
 	{
-		if (particles.Count == 0 && subtrees == null)
-			return new Vector(0, 0);
+		// Pokud uzel neobsahuje částice
+		if ((particles == null || particles.Count == 0) && subtrees == null)
+			return Vector2.Zero;
 
-		double distance = (particle.Position - centerOfMass).Magnitude + 1e-5;
-		double size = Math.Max(boundary.Width, boundary.Height);
+		Vector2 dir = centerOfMass - p.Position;
+		float distSq = dir.LengthSquared();
 
+		// Pokud je vzdálenost nulová nebo nesmyslná, sílu ignorujeme
+		if (distSq < 1e-6f || float.IsNaN(distSq))
+			return Vector2.Zero;
+
+		float distance = MathF.Sqrt(distSq);
+		float size = MathF.Max(boundary.Width, boundary.Height);
+
+		// Barnes–Hut zjednodušení
 		if (subtrees == null || size / distance < theta)
 		{
-			double forceMagnitude = (particle.Mass * totalMass) / (distance * distance);
-			Vector direction = (centerOfMass - particle.Position).Normalize();
-			return direction * forceMagnitude;
+			// Gravitační konstanta (pokud používáš nějaké měřítko)
+			const float G = 1f;
+
+			float forceMag = G * (p.Mass * totalMass) / distSq;
+
+			// Omez příliš velké síly, aby nevznikaly přetížení
+			if (forceMag > 1e6f)
+				forceMag = 1e6f;
+
+			Vector2 dirNorm = dir / distance;
+			return dirNorm * forceMag;
 		}
 		else
 		{
-			Vector totalForce = new Vector(0, 0);
-			foreach (var subtree in subtrees)
-				totalForce += subtree.CalculateForce(particle, theta);
+			Vector2 totalForce = Vector2.Zero;
+
+			foreach (var st in subtrees)
+			{
+				totalForce += st.CalculateForce(p, theta);
+			}
 
 			return totalForce;
 		}
 	}
 
+	/*
+	public Vector2 CalculateForce(Particle p, float theta)
+	{
+		if (particles.Count == 0 && subtrees == null)
+			return Vector2.Zero;
+
+		Vector2 dir = centerOfMass - p.Position;
+		float distance = dir.Length() + 1e-5f;
+		float size = Math.Max(boundary.Width, boundary.Height);
+
+		if (subtrees == null || size / distance < theta)
+		{
+			float forceMag = (p.Mass * totalMass) / (distance * distance);
+			return Vector2.Normalize(dir) * forceMag;
+		}
+		else
+		{
+			Vector2 totalForce = Vector2.Zero;
+			foreach (var st in subtrees)
+				totalForce += st.CalculateForce(p, theta);
+			return totalForce;
+		}
+	}
+	*/
 	public void EnsureContains(Particle particle)
 	{
-		var pos = particle.Position;
-
-		// Pokud částice neleží v aktuální oblasti, expanduj
-		if (!boundary.Contains((float)pos.X, (float)pos.Y))
+		// pokud je částice mimo, expanduj dokud se nevejde
+		while (!boundary.Contains(particle.Position.X, particle.Position.Y))
 		{
-			ExpandBoundary(pos.X, pos.Y);
+			ExpandBoundary(particle.Position);
 		}
 	}
 
-	private void ExpandBoundary(double x, double y)
+	private void ExpandBoundary(Vector2 pos)
 	{
-		// Aktuální hranice
-		float minX = boundary.X;
-		float minY = boundary.Y;
-		float maxX = boundary.X + boundary.Width;
-		float maxY = boundary.Y + boundary.Height;
+		float newWidth = boundary.Width * 2;
+		float newHeight = boundary.Height * 2;
+		float newX = boundary.X;
+		float newY = boundary.Y;
 
-		// Dokud bod neleží uvnitř, rozšiřuj 2×
-		while (!boundary.Contains((float)x, (float)y))
-		{
-			float newWidth = boundary.Width * 2;
-			float newHeight = boundary.Height * 2;
+		if (pos.X < boundary.X) newX = boundary.X - boundary.Width;
+		if (pos.X > boundary.X + boundary.Width) newX = boundary.X;
+		if (pos.Y < boundary.Y) newY = boundary.Y - boundary.Height;
+		if (pos.Y > boundary.Y + boundary.Height) newY = boundary.Y;
 
-			float newX = boundary.X - boundary.Width / 2;
-			float newY = boundary.Y - boundary.Height / 2;
-
-			boundary = new RectangleF(newX, newY, newWidth, newHeight);
-		}
+		boundary = new RectangleF(newX, newY, newWidth, newHeight);
+	
 	}
 
 	/*

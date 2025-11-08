@@ -1,23 +1,35 @@
-﻿using System;
+﻿using System.Numerics;
 
-public class Vector
+class Vector
 {
-	public double X;
-	public double Y;
+	public Vector2 Value;
 
-	public Vector(double x, double y)
+	public Vector(float x, float y)
 	{
-		X = x;
-		Y = y;
+		Value = new Vector2(x, y);
 	}
 
-	public static Vector operator +(Vector a, Vector b) => new Vector(a.X + b.X, a.Y + b.Y);
-	public static Vector operator -(Vector a, Vector b) => new Vector(a.X - b.X, a.Y - b.Y);
-	public static Vector operator *(Vector a, double scalar) => new Vector(a.X * scalar, a.Y * scalar);
-	public static Vector operator /(Vector a, double scalar) => new Vector(a.X / scalar, a.Y / scalar);
+	public float X => Value.X;
+	public float Y => Value.Y;
 
-	public double Magnitude => Math.Sqrt(X * X + Y * Y);
-	public Vector Normalize() => Magnitude > 1e-9 ? new Vector(X / Magnitude, Y / Magnitude) : new Vector(0, 0);
+	public static Vector operator +(Vector a, Vector b)
+			=> new Vector(a.X + b.X, a.Y + b.Y);
+
+	public static Vector operator -(Vector a, Vector b)
+			=> new Vector(a.X - b.X, a.Y - b.Y);
+
+	public static Vector operator *(Vector v, float scalar)
+			=> new Vector(v.X * scalar, v.Y * scalar);
+
+	public static Vector operator /(Vector v, float scalar)
+			=> new Vector(v.X / scalar, v.Y / scalar);
+
+	public float Magnitude => Value.Length();
+
+	public Vector Normalize() => new Vector(Vector2.Normalize(Value).X, Vector2.Normalize(Value).Y);
+
+	public static implicit operator Vector2(Vector v) => v.Value;
+	public static implicit operator Vector(Vector2 v) => new Vector(v.X, v.Y);
 
 	public bool IsCloseTo(Vector other, double epsilon = 0.01)
 	{
