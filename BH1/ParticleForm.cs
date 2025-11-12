@@ -38,11 +38,24 @@ class ParticleForm : Form
 
 		// 🧠 Zastavíme vykreslování během benchmarku
 		timer.Stop();
-
+		//var enerfirst=physics.Energy(particles);
 		RunBenchmark(200);
 
-		// 🔄 Po benchmarku můžeme spustit animaci
+		// 🔄 Po benchmarku můžeme
+		//var enerfinal= physics.Energy(particles);
+		//double enrozdil = enerfinal-enerfirst;
+		//double enrelativprocrozdil = 100*enrozdil/enerfirst;
+		//Console.WriteLine($"enfirst={enerfirst}  enfin={enerfinal}  enrelat={enrelativprocrozdil}");
+
+		//enerfirst=physics.Energy(particles);
+
 		timer.Start();
+
+
+		//enerfinal= physics.Energy(particles);
+		//enrozdil = enerfinal-enerfirst;
+		//enrelativprocrozdil = 100*enrozdil/enerfirst; 
+		//Console.WriteLine($"enfirst={enerfirst}  enfin={enerfinal}  enrelat={enrelativprocrozdil}");
 	}
 
 	enum ScenarioType
@@ -84,6 +97,28 @@ class ParticleForm : Form
 		}
 	}
 
+	private void CreateBenchmarkScenario_()
+	{
+		
+		  particles.Clear();
+		
+		  //Inicializace částic a prostoru
+		
+			particles.Add(new Particle(1, new Vector(400, 400), new Vector(0.0f, 0.0f), 1200.0f));
+		  particles.Add(new Particle(2,new Vector(400, 200), new Vector(1.5f, 0.0f), 0.1f));
+			//particles.Add(new Particle(3,new Vector(400, 450), new Vector(0.5f, 0), 1));
+			//particles.Add(new Particle(4,new Vector(400, 550), new Vector(0.25f, 0), 1));
+			//new Particle(5,new Vector(150, 120), new Vector(0, 0), 10),
+			//new Particle(6,new Vector(220, 180), new Vector(0, 0), 10),
+			//new Particle(5,new Vector(330, 330), new Vector(0, 0), 10),
+			//new Particle(6,new Vector(50, 60), new Vector(0, 0), 10),
+			//new Particle(5,new Vector(75, 220), new Vector(0, 0), 10)
+
+		Console.WriteLine($"Benchmark scénář vytvořen: {particles.Count} částic");
+	}
+	
+
+
 	private void CreateBenchmarkScenario()
 	{
 		int gridSize = 100;       // 100 × 100 = 10 000 částic
@@ -111,10 +146,10 @@ class ParticleForm : Form
 
 	private void CreateSunSystem(Random rnd)
 	{
-		Particle sun = new Particle(0, new Vector(425, 425), new Vector(0, 0), 10000);
+		Particle sun = new Particle(0, new Vector(425, 425), new Vector(0, 0),500);
 		particles.Add(sun);
 
-		int planetCount = 5000;
+		int planetCount = 500;
 		double G = 1;
 
 		for (int i = 0; i < planetCount; i++)
@@ -265,8 +300,27 @@ class ParticleForm : Form
 	}
 	*/
 
-
 	private void StepSimulation()
+	{
+		//quadTree = new QuadTree(1, new RectangleF(0, 0, 850, 850));
+		//// 1️⃣ Zvětši hranice podle všech částic
+		//foreach (var p in particles)
+		//	quadTree.EnsureContains(p);
+
+		//// 2️⃣ Postav znovu strom pro aktuální rozložení
+		//quadTree = new QuadTree(1, quadTree.boundary);
+		//foreach (var p in particles)
+		//	quadTree.Insert(p);
+
+		// 3️⃣ Aktualizuj pozice částic
+		RebuildTree();
+		foreach (var p in particles)
+			p.Acceleration=quadTree.CalculateAcceleration(p, 1.5f);
+
+		physics.Update(particles, quadTree, simulationTime);
+		simulationTime += (float)physics.DeltaTime; // globální krok, kdy kontrolujeme aktualizace
+	}
+	private void StepSimulation_()
 	{
 		//quadTree = new QuadTree(1, new RectangleF(0, 0, 850, 850));
 		//// 1️⃣ Zvětši hranice podle všech částic
@@ -295,7 +349,7 @@ class ParticleForm : Form
 				new Vector2(p.Position.X, p.Position.Y),
 				new Vector2(p.Velocity.X, p.Velocity.Y),
 				p.Mass)).ToList();
-
+		var enerfirst = physics.Energy(particles);
 		var stopwatch = new System.Diagnostics.Stopwatch();
 		stopwatch.Start();
 
@@ -303,12 +357,16 @@ class ParticleForm : Form
 		{
 			// Klasický krok simulace bez vykreslování
 			StepSimulation();
+			Console.WriteLine(particles[0].Position);
 		}
 
 		stopwatch.Stop();
 
-		// Obnovíme částice do původního stavu
-		particles = originalParticles;
+		// 🔄 Po benchmarku můžeme
+		var enerfinal = physics.Energy(particles);
+		double enrozdil = enerfinal-enerfirst;
+		double enrelativprocrozdil = 100*enrozdil/enerfirst;
+		Console.WriteLine($"enfirst={enerfirst}  enfin={enerfinal}  enrelat={enrelativprocrozdil}");
 
 		// Výsledek
 		MessageBox.Show(
@@ -318,6 +376,10 @@ class ParticleForm : Form
 				MessageBoxIcon.Information
 		);
 
+
+		// Obnovíme částice do původního stavu
+		particles = originalParticles;
+		RebuildTree();
 		// Znovu spustíme timer (grafickou simulaci)
 		timer.Start();
 	}

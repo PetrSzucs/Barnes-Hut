@@ -1,6 +1,7 @@
 ﻿using System.Collections.Generic;
 using System.Diagnostics;
 using System.Numerics;
+using static System.Windows.Forms.VisualStyles.VisualStyleElement.Tab;
 
 public class PhysicsEngine
 {
@@ -95,49 +96,49 @@ public class PhysicsEngine
 	*/
 
 	
-	public void Update(List<Particle> particles, QuadTree tree, float currentTime)
-	{
-		float baseStep = (float)DeltaTime; // např. 0.1f
+	//public void Update_(List<Particle> particles, QuadTree tree, float currentTime)
+	//{
+	//	float baseStep = (float)DeltaTime; // např. 0.1f
 
-		Parallel.ForEach(particles, p =>
-		{
-			// částice, které ještě nemají čas na update, přeskočíme
-			if (p.NextUpdateTime > currentTime)
-				return;
+	//	Parallel.ForEach(particles, p =>
+	//	{
+	//		// částice, které ještě nemají čas na update, přeskočíme
+	//		if (p.NextUpdateTime > currentTime)
+	//			return;
 
-			// Výpočet síly a akcelerace
-			Vector2 force = tree.CalculateForce(p, (float)Theta) * (float)G;
-			Vector2 acceleration = force / p.Mass;
-			p.Acceleration = acceleration;
+	//		// Výpočet síly a akcelerace
+	//		Vector2 force = tree.CalculateForce(p, (float)Theta) * (float)G;
+	//		Vector2 acceleration = force / p.Mass;
+	//		p.Acceleration = acceleration;
 
-			// adaptivní úprava časového kroku podle akcelerace
-			float accelMag = acceleration.Length();
+	//		// adaptivní úprava časového kroku podle akcelerace
+	//		float accelMag = acceleration.Length();
 
-			// čím větší zrychlení, tím menší krok (pouze mocniny 1/2)
-			float desiredStep = baseStep;
-			if (accelMag > 50f) desiredStep = baseStep / 16f;
-			else if (accelMag > 10f) desiredStep = baseStep / 8f;
-			else if (accelMag > 5f) desiredStep = baseStep / 4f;
-			else if (accelMag > 2f) desiredStep = baseStep / 2f;
+	//		// čím větší zrychlení, tím menší krok (pouze mocniny 1/2)
+	//		float desiredStep = baseStep;
+	//		if (accelMag > 50f) desiredStep = baseStep / 16f;
+	//		else if (accelMag > 10f) desiredStep = baseStep / 8f;
+	//		else if (accelMag > 5f) desiredStep = baseStep / 4f;
+	//		else if (accelMag > 2f) desiredStep = baseStep / 2f;
 
-			// zarovnej krok na nejbližší mocninu 1/2
-			float ratio = baseStep / desiredStep;
-			int power = (int)Math.Round(Math.Log2(ratio));
-			desiredStep = baseStep / (float)Math.Pow(2, power);
+	//		// zarovnej krok na nejbližší mocninu 1/2
+	//		float ratio = baseStep / desiredStep;
+	//		int power = (int)Math.Round(Math.Log2(ratio));
+	//		desiredStep = baseStep / (float)Math.Pow(2, power);
 
-			// omezení rozsahu
-			desiredStep = Math.Clamp(desiredStep, baseStep / 64f, baseStep);
+	//		// omezení rozsahu
+	//		desiredStep = Math.Clamp(desiredStep, baseStep / 64f, baseStep);
 
-			p.TimeStep = desiredStep;
+	//		p.TimeStep = desiredStep;
 
-			// integrace pohybu (Euler)
-			p.Velocity += acceleration * p.TimeStep;
-			p.Position += p.Velocity * p.TimeStep;
+	//		// integrace pohybu (Euler)
+	//		p.Velocity += acceleration * p.TimeStep;
+	//		p.Position += p.Velocity * p.TimeStep;
 
-			// naplánuj příští update na budoucí čas
-			p.NextUpdateTime = currentTime + p.TimeStep;
-		});
-	}
+	//		// naplánuj příští update na budoucí čas
+	//		p.NextUpdateTime = currentTime + p.TimeStep;
+	//	});
+	//}
 
 	/*
 	public void Update(List<Particle> particles, QuadTree tree, float currentTime)
@@ -178,36 +179,47 @@ public class PhysicsEngine
 		});
 	}
 	*/
-
 	// Standardní update, paralelizovaný
-	/*public void Update(List<Particle> particles, QuadTree tree)
+	public void Update(List<Particle> particles, QuadTree tree, float currentTime)
 	{
 		Parallel.ForEach(particles, p =>
 		{
-			Vector2 force = tree.CalculateForce(p, Theta);
-			force *= G;
-
-			p.Acceleration = force / p.Mass;
-
-			p.Velocity += p.Acceleration * DeltaTime;
+			p.Velocity += 0.5f*p.Acceleration * DeltaTime;
+		});
+		Parallel.ForEach(particles, p =>
+		{
 			p.Position += p.Velocity * DeltaTime;
 		});
-	}*/
+	}
+	// Standardní update, paralelizovaný
+	//public void Update(List<Particle> particles, QuadTree tree, float currentTime)
+	//{
+	//	Parallel.ForEach(particles, p =>
+	//	{
+	//		Vector2 force = tree.CalculateForce(p, Theta);
+	//		force *= G;
+
+	//		p.Acceleration = force / p.Mass;
+
+	//		p.Velocity += p.Acceleration * DeltaTime;
+	//		p.Position += p.Velocity * DeltaTime;
+	//	});
+	//}
 
 	// Sekvenční update pro porovnání rychlosti
-	public void UpdateSequential(List<Particle> particles, QuadTree tree)
-	{
-		foreach (var p in particles)
-		{
-			Vector2 force = tree.CalculateForce(p, Theta);
-			force *= G;
+	//public void UpdateSequential(List<Particle> particles, QuadTree tree)
+	//{
+	//	foreach (var p in particles)
+	//	{
+	//		Vector2 force = tree.CalculateForce(p, Theta);
+	//		force *= G;
 
-			p.Acceleration = force / p.Mass;
+	//		p.Acceleration = force / p.Mass;
 
-			p.Velocity += p.Acceleration * DeltaTime;
-			p.Position += p.Velocity * DeltaTime;
-		}
-	}
+	//		p.Velocity += p.Acceleration * DeltaTime;
+	//		p.Position += p.Velocity * DeltaTime;
+	//	}
+	//}
 
 	// Metoda pro rychlé benchmarky
 	public long RunBenchmark(List<Particle> particles, QuadTree tree, int iterations, bool parallel = true)
@@ -226,7 +238,28 @@ public class PhysicsEngine
 		return sw.ElapsedMilliseconds;
 	}
 
+	public double Energy(List<Particle> particles)
+	{
+		double Ekin = 0; double Epot = 0; double energy = 0;
+		foreach (var particle in particles)
+		{
+			Ekin+=(particle.Mass/G)* 0.5*(particle.Velocity.X*particle.Velocity.X+particle.Velocity.Y*particle.Velocity.Y);
+		}
 
+
+		foreach (var p1 in particles)
+		{
+			foreach (var p2 in particles)
+			{
+				if (p1.Position==p2.Position) continue;
+				Vector2 dir = p1.Position - p2.Position;
+				float distSq = dir.LengthSquared();
+				Epot= Epot  -  G * (p1.Mass)/G * (p2.Mass/G)/distSq;
+			}
+		}
+		energy=Ekin+Epot;
+		return energy;
+	}
 
 	/*public void Update(List<Particle> particles, QuadTree tree)
 	{

@@ -103,10 +103,55 @@ public class QuadTree
 		centerOfMass.X = (centerOfMass.X * (totalMass - particle.Mass) + particle.Position.X * particle.Mass) / totalMass;
 		centerOfMass.Y = (centerOfMass.Y * (totalMass - particle.Mass) + particle.Position.Y * particle.Mass) / totalMass;
 	}
+	public Vector2 CalculateAcceleration(Particle p, float theta)
+	{
+		if (totalMass<=0 )
+			return Vector2.Zero;
+
+		if ((subtrees==null) && particles.Count==1 && particles[0]==p)
+			return Vector2.Zero;
+
+		Vector2 direction = centerOfMass - p.Position;
+		float distance = direction.Length();
+
+		// Pokud je vzdálenost nulová nebo nesmyslná, sílu ignorujeme
+		if (distance < 1e-5f || float.IsNaN(distance))
+			return Vector2.Zero;
+
+		
+		float size = MathF.Max(boundary.Width, boundary.Height);
+
+		// Barnes–Hut zjednodušení
+		if (subtrees == null || subtrees.Length==0|| size / distance < theta)
+		{
+			// Gravitační konstanta (pokud používáš nějaké měřítko)
+			const float G = 1f;
+
+			float accelMag = G *  totalMass / (distance*distance);
+			return Vector2.Normalize(direction)*accelMag;
+		}
+		else
+		{
+			Vector2 acc = Vector2.Zero;
+
+			foreach (var st in subtrees)
+			{
+				if (st!=null)
+					acc+=st.CalculateAcceleration(p,theta);
+			}
+
+			return acc;
+		}
+	}
+
+	/*
 	public Vector2 CalculateForce(Particle p, float theta)
 	{
 		// Pokud uzel neobsahuje částice
 		if ((particles == null || particles.Count == 0) && subtrees == null)
+			return Vector2.Zero;
+
+		if ((subtrees==null) && particles.Count==1 && particles[0]==p)
 			return Vector2.Zero;
 
 		Vector2 dir = centerOfMass - p.Position;
@@ -128,8 +173,8 @@ public class QuadTree
 			float forceMag = G * (p.Mass * totalMass) / distSq;
 
 			// Omez příliš velké síly, aby nevznikaly přetížení
-			if (forceMag > 1e6f)
-				forceMag = 1e6f;
+			//if (forceMag > 1e6f)
+				//forceMag = 1e6f;
 
 			Vector2 dirNorm = dir / distance;
 			return dirNorm * forceMag;
@@ -145,32 +190,33 @@ public class QuadTree
 
 			return totalForce;
 		}
-	}
+	}*/
 
-	/*
-	public Vector2 CalculateForce(Particle p, float theta)
-	{
-		if (particles.Count == 0 && subtrees == null)
-			return Vector2.Zero;
+	
+	//public Vector2 CalculateForce_(Particle p, float theta)
+	//{
+	//	if (particles.Count == 0 && subtrees == null)
+	//		return Vector2.Zero;
 
-		Vector2 dir = centerOfMass - p.Position;
-		float distance = dir.Length() + 1e-5f;
-		float size = Math.Max(boundary.Width, boundary.Height);
+	//	Vector2 dir = centerOfMass - p.Position;
+	//	float distance = dir.Length() + 1e-5f;
+	//	float size = Math.Max(boundary.Width, boundary.Height);
 
-		if (subtrees == null || size / distance < theta)
-		{
-			float forceMag = (p.Mass * totalMass) / (distance * distance);
-			return Vector2.Normalize(dir) * forceMag;
-		}
-		else
-		{
-			Vector2 totalForce = Vector2.Zero;
-			foreach (var st in subtrees)
-				totalForce += st.CalculateForce(p, theta);
-			return totalForce;
-		}
-	}
-	*/
+	//	if (subtrees == null || size / distance < theta)
+	//	{
+	//		float forceMag = (p.Mass * totalMass) / (distance * distance);
+	//		return Vector2.Normalize(dir) * forceMag;
+	//	}
+	//	else
+	//	{
+	//		Vector2 totalForce = Vector2.Zero;
+	//		foreach (var st in subtrees)
+	//			totalForce += st.CalculateForce(p, theta);
+	//		return totalForce;
+	//	}
+	//}
+	
+
 	public void EnsureContains(Particle particle)
 	{
 		// pokud je částice mimo, expanduj dokud se nevejde
