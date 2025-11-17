@@ -103,46 +103,81 @@ public class QuadTree
 		centerOfMass.X = (centerOfMass.X * (totalMass - particle.Mass) + particle.Position.X * particle.Mass) / totalMass;
 		centerOfMass.Y = (centerOfMass.Y * (totalMass - particle.Mass) + particle.Position.Y * particle.Mass) / totalMass;
 	}
-	public Vector2 CalculateAcceleration(Particle p, float theta)
+	public Vector2 CalculateAcceleration(Particle p, float theta, float G = 1f)
 	{
-		if (totalMass<=0 )
+		// prázdný uzel
+		if (totalMass <= 0f)
 			return Vector2.Zero;
 
-		if ((subtrees==null) && particles.Count==1 && particles[0]==p)
+		// pokud je tento list jen s touto částicí, ignoruj
+		if (subtrees == null && particles != null && particles.Count == 1 && particles[0] == p)
 			return Vector2.Zero;
 
+		// směr od p k hmotnému středu
 		Vector2 direction = centerOfMass - p.Position;
-		float distance = direction.Length();
+		float distSq = direction.LengthSquared();
 
-		// Pokud je vzdálenost nulová nebo nesmyslná, sílu ignorujeme
-		if (distance < 1e-5f || float.IsNaN(distance))
+		// ochrana proti dělení nulou a NaN
+		if (distSq < 1e-10f || float.IsNaN(distSq))
 			return Vector2.Zero;
 
-		
+		float distance = MathF.Sqrt(distSq);
 		float size = MathF.Max(boundary.Width, boundary.Height);
 
-		// Barnes–Hut zjednodušení
-		if (subtrees == null || subtrees.Length==0|| size / distance < theta)
+		// rozhodnutí Barnes-Hut: aproximovat nebo rozbalit
+		if (subtrees == null || subtrees.Length == 0 || (size / distance) < theta)
 		{
-			// Gravitační konstanta (pokud používáš nějaké měřítko)
-			const float G = 1f;
+			// Pokud tento uzel **obsahuje i cílovou částici p**, můžeme (volitelně)
+			// odečíst její příspěvek z celkové hmotnosti a středu hmoty,
+			// aby se zabránilo "self-force" aprox.
+			float effMass = totalMass;
+			Vector2 effCenter = centerOfMass;
 
-			float accelMag = G *  totalMass / (distance*distance);
-			return Vector2.Normalize(direction)*accelMag;
+			if (particles != null && particles.Count > 0 && particles.Contains(p))
+			{
+				// odečteme příspěvek p
+				effMass = totalMass - p.Mass;
+				if (effMass <= 0f)
+					return Vector2.Zero; // po odečtení nic nezbývá
+
+				effCenter = (centerOfMass * totalMass - p.Position * p.Mass) / effMass;
+
+				// přepočítej směr a vzdálenost vůči efektivnímu středu
+				direction = effCenter - p.Position;
+				distSq = direction.LengthSquared();
+				if (distSq < 1e-10f || float.IsNaN(distSq))
+					return Vector2.Zero;
+				distance = MathF.Sqrt(distSq);
+			}
+
+			// výpočet akcelerace: a = G * M / r^2 * (dir / r) = G * M * dir / r^3
+			float invDist = 1f / distance;
+			float invDist3 = invDist / distSq; // = 1 / (r^3)
+
+			Vector2 accel = direction * (G * effMass * invDist3);
+
+			// bezpečnostní clamp (volitelné) - zabrání extrémním akceleracím
+			if (float.IsNaN(accel.X) || float.IsNaN(accel.Y))
+				return Vector2.Zero;
+
+			return accel;
 		}
 		else
 		{
+			// rekurzivní průchod podstromy
 			Vector2 acc = Vector2.Zero;
-
-			foreach (var st in subtrees)
+			if (subtrees != null)
 			{
-				if (st!=null)
-					acc+=st.CalculateAcceleration(p,theta);
+				foreach (var st in subtrees)
+				{
+					if (st != null)
+						acc += st.CalculateAcceleration(p, theta, G);
+				}
 			}
-
 			return acc;
 		}
 	}
+
 
 	/*
 	public Vector2 CalculateForce(Particle p, float theta)
@@ -192,7 +227,7 @@ public class QuadTree
 		}
 	}*/
 
-	
+
 	//public Vector2 CalculateForce_(Particle p, float theta)
 	//{
 	//	if (particles.Count == 0 && subtrees == null)
@@ -215,7 +250,7 @@ public class QuadTree
 	//		return totalForce;
 	//	}
 	//}
-	
+
 
 	public void EnsureContains(Particle particle)
 	{
@@ -297,6 +332,7 @@ public class QuadTree
 				subtree.TransferParticlesTo(target);
 		}
 	}*/
+
 
 	public void Draw(Graphics g)
 	{

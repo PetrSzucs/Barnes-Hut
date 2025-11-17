@@ -38,7 +38,7 @@ class BarnesHutSimulation
 		}*/
 
 		var quadTree = new QuadTree(1, new RectangleF(0, 0, 850, 850));
-		var physics = new PhysicsEngine(theta: 1.5f, deltaTime: 1.1f, g: 1);
+		var physics = new PhysicsEngine(theta: 1.0f, deltaTime: 0.2f, g: 1);
 
 		Application.Run(new ParticleForm(particles, quadTree, physics));
 	}

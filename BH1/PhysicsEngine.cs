@@ -95,7 +95,7 @@ public class PhysicsEngine
 	}
 	*/
 
-	
+
 	//public void Update_(List<Particle> particles, QuadTree tree, float currentTime)
 	//{
 	//	float baseStep = (float)DeltaTime; // např. 0.1f
@@ -180,7 +180,47 @@ public class PhysicsEngine
 	}
 	*/
 	// Standardní update, paralelizovaný
-	public void Update(List<Particle> particles, QuadTree tree, float currentTime)
+
+	// Předpoklad: před voláním této metody jsou p.Acceleration naplněny na základě pozic (tzn. volalo se CalculateAcceleration)
+	public void Update(List<Particle> particles, QuadTree tree)
+	{
+		float dt = DeltaTime;
+
+		// 1) First half-kick: v += 0.5 * a * dt
+		Parallel.ForEach(particles, p =>
+		{
+			p.Velocity += 0.5f * p.Acceleration * dt;
+		});
+
+		// 2) Drift: r += v * dt
+		Parallel.ForEach(particles, p =>
+		{
+			p.Position += p.Velocity * dt;
+		});
+
+		// 3) Po driftu je potřeba přepočítat QuadTree podle nových pozic
+		//    (můžeme volat externí RebuildTree, ale zařadíme tu přímo jednoduché vyčištění a naplnění)
+		tree.Clear();
+		foreach (var p in particles)
+		{
+			tree.EnsureContains(p);
+			tree.Insert(p);
+		}
+
+		// 4) Přepočti akcelerace podle nových pozic (pomocí Barnes-Hut)
+		Parallel.ForEach(particles, p =>
+		{
+			p.Acceleration = tree.CalculateAcceleration(p, Theta) * G;
+		});
+
+		// 5) Second half-kick: v += 0.5 * a_new * dt
+		Parallel.ForEach(particles, p =>
+		{
+			p.Velocity += 0.5f * p.Acceleration * dt;
+		});
+	}
+
+	/*public void Update(List<Particle> particles, QuadTree tree, float currentTime)
 	{
 		Parallel.ForEach(particles, p =>
 		{
@@ -190,7 +230,7 @@ public class PhysicsEngine
 		{
 			p.Position += p.Velocity * DeltaTime;
 		});
-	}
+	}*/
 	// Standardní update, paralelizovaný
 	//public void Update(List<Particle> particles, QuadTree tree, float currentTime)
 	//{
@@ -238,6 +278,38 @@ public class PhysicsEngine
 		return sw.ElapsedMilliseconds;
 	}
 
+
+	public double Energy(List<Particle> particles, double G = 1.0)
+	{
+		double Ekin = 0.0;
+		double Epot = 0.0;
+
+		// kinetická energie: 0.5 * m * v^2
+		foreach (var p in particles)
+		{
+			double v2 = p.Velocity.X * p.Velocity.X + p.Velocity.Y * p.Velocity.Y;
+			Ekin += 0.5 * p.Mass * v2;
+		}
+
+		// potenciální energie: sum over unordered pairs: -G * m1 * m2 / r
+		int n = particles.Count;
+		for (int i = 0; i < n; i++)
+		{
+			for (int j = i + 1; j < n; j++)
+			{
+				var p1 = particles[i];
+				var p2 = particles[j];
+				var dir = p1.Position - p2.Position;
+				float dist = dir.Length();
+				if (dist < 1e-6f) continue; // ochrana proti dělení nulou
+				Epot += -G * (double)p1.Mass * (double)p2.Mass / dist;
+			}
+		}
+
+		return Ekin + Epot;
+	}
+
+	/*
 	public double Energy(List<Particle> particles)
 	{
 		double Ekin = 0; double Epot = 0; double energy = 0;
@@ -259,7 +331,7 @@ public class PhysicsEngine
 		}
 		energy=Ekin+Epot;
 		return energy;
-	}
+	}*/
 
 	/*public void Update(List<Particle> particles, QuadTree tree)
 	{

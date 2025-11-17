@@ -24,13 +24,7 @@ class ParticleForm : Form
 
 		DoubleBuffered = true;
 		ClientSize = new Size(850, 850);
-		Text = "Barnes-Hut Simulation";
-
-		// Náhodné počáteční rychlosti
-		//foreach (var p in particles)
-		//{
-			//p.Velocity = new Vector(rnd.NextDouble() * 2 - 1, rnd.NextDouble() * 2 - 1);
-		//}
+		Text = "Barnes-Hut Simulation";			
 
 		timer = new Timer { Interval = 16 }; // cca 60 FPS
 		timer.Tick += (s, e) => { StepSimulation(); Invalidate(); };
@@ -38,24 +32,10 @@ class ParticleForm : Form
 
 		// 🧠 Zastavíme vykreslování během benchmarku
 		timer.Stop();
-		//var enerfirst=physics.Energy(particles);
-		RunBenchmark(200);
-
-		// 🔄 Po benchmarku můžeme
-		//var enerfinal= physics.Energy(particles);
-		//double enrozdil = enerfinal-enerfirst;
-		//double enrelativprocrozdil = 100*enrozdil/enerfirst;
-		//Console.WriteLine($"enfirst={enerfirst}  enfin={enerfinal}  enrelat={enrelativprocrozdil}");
-
-		//enerfirst=physics.Energy(particles);
+	
+		RunBenchmark(100);
 
 		timer.Start();
-
-
-		//enerfinal= physics.Energy(particles);
-		//enrozdil = enerfinal-enerfirst;
-		//enrelativprocrozdil = 100*enrozdil/enerfirst; 
-		//Console.WriteLine($"enfirst={enerfirst}  enfin={enerfinal}  enrelat={enrelativprocrozdil}");
 	}
 
 	enum ScenarioType
@@ -105,9 +85,9 @@ class ParticleForm : Form
 		  //Inicializace částic a prostoru
 		
 			particles.Add(new Particle(1, new Vector(400, 400), new Vector(0.0f, 0.0f), 1200.0f));
-		  particles.Add(new Particle(2,new Vector(400, 200), new Vector(1.5f, 0.0f), 0.1f));
-			//particles.Add(new Particle(3,new Vector(400, 450), new Vector(0.5f, 0), 1));
-			//particles.Add(new Particle(4,new Vector(400, 550), new Vector(0.25f, 0), 1));
+		  particles.Add(new Particle(2,new Vector(400, 200), new Vector(1.3f, 0.0f), 0.1f));
+			particles.Add(new Particle(3,new Vector(400, 450), new Vector(5.5f, 0), 1));
+			particles.Add(new Particle(4,new Vector(400, 550), new Vector(1.25f, 0), 1));
 			//new Particle(5,new Vector(150, 120), new Vector(0, 0), 10),
 			//new Particle(6,new Vector(220, 180), new Vector(0, 0), 10),
 			//new Particle(5,new Vector(330, 330), new Vector(0, 0), 10),
@@ -302,23 +282,18 @@ class ParticleForm : Form
 
 	private void StepSimulation()
 	{
-		//quadTree = new QuadTree(1, new RectangleF(0, 0, 850, 850));
-		//// 1️⃣ Zvětši hranice podle všech částic
-		//foreach (var p in particles)
-		//	quadTree.EnsureContains(p);
-
-		//// 2️⃣ Postav znovu strom pro aktuální rozložení
-		//quadTree = new QuadTree(1, quadTree.boundary);
-		//foreach (var p in particles)
-		//	quadTree.Insert(p);
-
-		// 3️⃣ Aktualizuj pozice částic
+		// 1) Přestavíme strom podle aktuálních pozic
 		RebuildTree();
-		foreach (var p in particles)
-			p.Acceleration=quadTree.CalculateAcceleration(p, 1.5f);
 
-		physics.Update(particles, quadTree, simulationTime);
-		simulationTime += (float)physics.DeltaTime; // globální krok, kdy kontrolujeme aktualizace
+		// 2) Spočítáme akcelerace z aktuálního stromu (potřebné pro "first half-kick")
+		foreach (var p in particles)
+			p.Acceleration = quadTree.CalculateAcceleration(p, physics.Theta) * physics.G;
+
+		// 3) Provedeme leapfrog krok (kick-drift-kick) uvnitř physics.Update
+		physics.Update(particles, quadTree);
+
+		// 4) Aktualizujeme simul. čas (pokud ho používáš)
+		simulationTime += (float)physics.DeltaTime;
 	}
 	private void StepSimulation_()
 	{
@@ -333,7 +308,7 @@ class ParticleForm : Form
 		//	quadTree.Insert(p);
 
 		// 3️⃣ Aktualizuj pozice částic
-		physics.Update(particles, quadTree, simulationTime);
+		physics.Update(particles, quadTree);
 		simulationTime += (float)physics.DeltaTime; // globální krok, kdy kontrolujeme aktualizace
 		RebuildTree();
 	}
@@ -357,7 +332,7 @@ class ParticleForm : Form
 		{
 			// Klasický krok simulace bez vykreslování
 			StepSimulation();
-			Console.WriteLine(particles[0].Position);
+			//Console.WriteLine(particles[0].Position);
 		}
 
 		stopwatch.Stop();
