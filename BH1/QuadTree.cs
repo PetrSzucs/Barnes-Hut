@@ -11,6 +11,7 @@ public class QuadTree
 	private Vector2 centerOfMass;
 	private float totalMass;
 	public RectangleF Bounds => boundary;
+	private const float MAX_BOUND_SIZE = 1e6f;
 
 	public QuadTree(int capacity, RectangleF boundary)
 	{
@@ -254,13 +255,16 @@ public class QuadTree
 
 	public void EnsureContains(Particle particle)
 	{
-		// pokud je částice mimo, expanduj dokud se nevejde
+		int safety = 0;
 		while (!boundary.Contains(particle.Position.X, particle.Position.Y))
 		{
-			ExpandBoundary(particle.Position);
+			if (!ExpandBoundary(particle.Position) || ++safety > 64) break;
 		}
 	}
 
+
+
+	/*
 	private void ExpandBoundary(Vector2 pos)
 	{
 		float newWidth = boundary.Width * 2;
@@ -275,7 +279,75 @@ public class QuadTree
 
 		boundary = new RectangleF(newX, newY, newWidth, newHeight);
 	
+	}*/
+
+	private bool ExpandBoundary(Vector2 pos)
+	{
+		float w = boundary.Width;
+		float h = boundary.Height;
+
+		if (w <= 0 || h <= 0)
+		{
+			boundary = new RectangleF(boundary.X, boundary.Y, 1f, 1f);
+			w = 1f; h = 1f;
+		}
+
+		if (w >= MAX_BOUND_SIZE || h >= MAX_BOUND_SIZE)
+			return false; // už dál nerozšiřovat
+
+		float newW = Math.Min(w * 2f, MAX_BOUND_SIZE);
+		float newH = Math.Min(h * 2f, MAX_BOUND_SIZE);
+
+		float newX = boundary.X;
+		float newY = boundary.Y;
+
+		if (pos.X < boundary.X) newX = boundary.X - w;
+		if (pos.X > boundary.X + w) newX = boundary.X;
+		if (pos.Y < boundary.Y) newY = boundary.Y - h;
+		if (pos.Y > boundary.Y + h) newY = boundary.Y;
+
+		boundary = new RectangleF(newX, newY, newW, newH);
+		return true;
 	}
+
+	private void ExpandBoundarySymmetric()
+	{
+		const float MAX_SIZE = 1e6f;
+		float newW = Math.Min(boundary.Width * 2f, MAX_SIZE);
+		float newH = Math.Min(boundary.Height * 2f, MAX_SIZE);
+
+		float cx = boundary.X + boundary.Width / 2f;
+		float cy = boundary.Y + boundary.Height / 2f;
+
+		boundary = new RectangleF(cx - newW/2f, cy - newH/2f, newW, newH);
+	}
+
+
+	public int CountNodes()
+	{
+		int n = 1;
+		if (subtrees != null)
+		{
+			foreach (var s in subtrees) if (s != null) n += s.CountNodes();
+		}
+		return n;
+	}
+	public int CountLeaves()
+	{
+		if (subtrees == null) return 1;
+		int c = 0;
+		foreach (var s in subtrees) if (s != null) c += s.CountLeaves();
+		return c;
+	}
+	public int MaxDepth()
+	{
+		if (subtrees == null) return 1;
+		int md = 0;
+		foreach (var s in subtrees) if (s != null) md = Math.Max(md, s.MaxDepth());
+		return md + 1;
+	}
+
+
 
 	/*
 	private void ExpandBoundary(Vector pos)
@@ -333,8 +405,85 @@ public class QuadTree
 		}
 	}*/
 
+	public void Draw(Graphics g, RectangleF viewport, int maxDepth = 10)
+	{
+		if (maxDepth < 0) return;
+		if (boundary.Width <= 0 || boundary.Height <= 0) return;		
+		if (boundary.Width < 2f || boundary.Height < 2f) return;
+		if (float.IsNaN(boundary.X) || float.IsInfinity(boundary.Width)) return;
+		if (!RectangleF.Intersect(boundary, viewport).IsEmpty)
+		{
+			// kresli jen pokud je dostatečně velký
+			const float MIN_DRAW = 2f;
+			if (boundary.Width >= MIN_DRAW && boundary.Height >= MIN_DRAW)
+			{
+				g.DrawRectangle(Pens.Red, boundary.X, boundary.Y, boundary.Width, boundary.Height);
+			}
+			if (subtrees != null)
+			{
+				foreach (var s in subtrees)
+					s?.Draw(g, viewport, maxDepth - 1);
+			}
+		}
+	}
 
-	public void Draw(Graphics g)
+
+
+	/*
+		public void Draw(Graphics g, RectangleF? viewport = null, int maxDepth = 20)
+		{
+			// bezpečnostní kontroly na boundary
+			if (boundary.Width <= 0 || boundary.Height <= 0) return;
+			if (float.IsNaN(boundary.X) || float.IsNaN(boundary.Y) ||
+					float.IsNaN(boundary.Width) || float.IsNaN(boundary.Height)) return;
+			if (float.IsInfinity(boundary.X) || float.IsInfinity(boundary.Y) ||
+					float.IsInfinity(boundary.Width) || float.IsInfinity(boundary.Height)) return;
+
+			// pokud je viewport zadán: vykresli jen, když se uzel protíná s viditelnou oblastí
+			if (viewport != null)
+			{
+				if (!RectangleF.Intersect(boundary, viewport.Value).IsEmpty)
+				{
+					// ok, částečně viditelné
+				}
+				else
+				{
+					return; // mimo obrazovku
+				}
+			}
+
+			// omez hloubku, aby se neškálovalo do nekonečna
+			if (maxDepth < 0) return;
+
+			// bezpečné převedení na float pro DrawRectangle
+			float x = boundary.X;
+			float y = boundary.Y;
+			float w = boundary.Width;
+			float h = boundary.Height;
+
+			// Další ochrana proti extrémním hodnotám (nastav prah dle potřeby)
+			const float MAX_DRAW = 1e7f;
+			if (Math.Abs(x) > MAX_DRAW || Math.Abs(y) > MAX_DRAW || w > MAX_DRAW || h > MAX_DRAW)
+				return;
+
+			try
+			{
+				g.DrawRectangle(Pens.Red, x, y, w, h);
+			}
+			catch
+			{
+				// pokud i tak Graphics selže, ignoruj kreslení tohoto uzlu
+				return;
+			}
+
+			if (subtrees != null)
+			{
+				foreach (var st in subtrees)
+					st?.Draw(g, viewport, maxDepth - 1);
+			}
+		}*/
+
+	/*public void Draw(Graphics g)
 	{
 		g.DrawRectangle(Pens.Red, boundary.X, boundary.Y, boundary.Width, boundary.Height);
 		//g.FillEllipse(Brushes.Red, (float)centerOfMass.X - 2, (float)centerOfMass.Y - 2, 4, 4);
@@ -342,5 +491,5 @@ public class QuadTree
 		if (subtrees != null)
 			foreach (var subtree in subtrees)
 				subtree.Draw(g);
-	}
+	}*/
 }

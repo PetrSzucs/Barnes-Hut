@@ -15,6 +15,7 @@ class ParticleForm : Form
 	private Timer timer;
 	private Random rnd = new Random();
 	private ScenarioType scenario = ScenarioType.Benchmark; // vybraný scénář
+	private int logCounter=0;
 
 	public ParticleForm(List<Particle> particles, QuadTree quadTree, PhysicsEngine physics)
 	{
@@ -47,6 +48,27 @@ class ParticleForm : Form
 		Benchmark      // nový scénář pro měření výkonu
 	}
 
+	private void LogStats()
+	{
+		if (particles == null || particles.Count == 0 || quadTree == null) return;
+
+		// rozsah pozic
+		float minX = float.MaxValue, minY = float.MaxValue;
+		float maxX = float.MinValue, maxY = float.MinValue;
+		foreach (var p in particles)
+		{
+			if (float.IsNaN(p.Position.X) || float.IsNaN(p.Position.Y)) continue;
+			if (p.Position.X < minX) minX = p.Position.X;
+			if (p.Position.Y < minY) minY = p.Position.Y;
+			if (p.Position.X > maxX) maxX = p.Position.X;
+			if (p.Position.Y > maxY) maxY = p.Position.Y;
+		}
+
+		var bounds = quadTree.Bounds;
+		Console.WriteLine($"[Log {logCounter++}] Particles: {particles.Count}, pos min=({minX:F1},{minY:F1}) max=({maxX:F1},{maxY:F1})");
+		Console.WriteLine($" Root bounds: X={bounds.X:F1} Y={bounds.Y:F1} W={bounds.Width:F1} H={bounds.Height:F1}");
+		Console.WriteLine($" Nodes={quadTree.CountNodes()}, Leaves={quadTree.CountLeaves()}, MaxDepth={quadTree.MaxDepth()}");
+	}
 
 	private void InitializeParticles()
 	{
@@ -77,7 +99,7 @@ class ParticleForm : Form
 		}
 	}
 
-	private void CreateBenchmarkScenario_()
+	private void CreateBenchmarkScenario()
 	{
 		
 		  particles.Clear();
@@ -99,7 +121,7 @@ class ParticleForm : Form
 	
 
 
-	private void CreateBenchmarkScenario()
+	private void CreateBenchmarkScenario_()
 	{
 		int gridSize = 100;       // 100 × 100 = 10 000 částic
 		float spacing = 8f;       // vzdálenost mezi částicemi
@@ -157,9 +179,9 @@ class ParticleForm : Form
 		{
 			double x = 425 + rnd.NextDouble() * 200 - 100;
 			double y = 425 + rnd.NextDouble() * 200 - 100;
-			double vx = (rnd.NextDouble() - 0.5) * 0.5;
-			double vy = (rnd.NextDouble() - 0.5) * 0.5;
-			double mass = 1;
+			double vx = (rnd.NextDouble() - 0.01) * 0.01;
+			double vy = (rnd.NextDouble() - 0.01) * 0.01;
+			double mass = 0.1;
 
 			particles.Add(new Particle(i, new Vector2((float)x, (float)y), new Vector2((float)vx, (float)vy), (float)mass));
 		}
@@ -221,7 +243,7 @@ class ParticleForm : Form
 		}
 	}
 
-	private void RebuildTree()
+	private void RebuildTree_()
 	{
 		if (quadTree == null)
 			return;
@@ -237,6 +259,105 @@ class ParticleForm : Form
 			quadTree.Insert(p);
 		}
 	}
+
+	private void RebuildTree()
+	{
+		// Pokud nemáme částice, žádný strom netvoříme
+		if (particles == null || particles.Count == 0)
+		{
+			quadTree = new QuadTree(1, new RectangleF(0, 0, 1, 1));
+			return;
+		}
+
+		// 1) Spočítáme ohraničující box nad všemi platnými (nenaN/Inf) pozicemi
+		float minX = float.MaxValue, minY = float.MaxValue;
+		float maxX = float.MinValue, maxY = float.MinValue;
+		bool anyValid = false;
+
+		foreach (var p in particles)
+		{
+			if (float.IsNaN(p.Position.X) || float.IsNaN(p.Position.Y) ||
+					float.IsInfinity(p.Position.X) || float.IsInfinity(p.Position.Y))
+				continue;
+
+			anyValid = true;
+			if (p.Position.X < minX) minX = p.Position.X;
+			if (p.Position.Y < minY) minY = p.Position.Y;
+			if (p.Position.X > maxX) maxX = p.Position.X;
+			if (p.Position.Y > maxY) maxY = p.Position.Y;
+		}
+
+		if (!anyValid)
+		{
+			// žádné platné pozice — vytvoříme malý defaultní strom
+			quadTree = new QuadTree(1, new RectangleF(0, 0, 1, 1));
+			return;
+		}
+
+		// 2) padding a čtvercové root boundary (symetrické kolem středu)
+		const float padding = 10f;
+		float width = Math.Max(1f, (maxX - minX) + padding * 2f);
+		float height = Math.Max(1f, (maxY - minY) + padding * 2f);
+		float size = Math.Max(width, height);
+		float cx = (minX + maxX) / 2f;
+		float cy = (minY + maxY) / 2f;
+		float left = cx - size / 2f;
+		float top = cy - size / 2f;
+
+		// 3) vytvoříme nový QuadTree jako root (tím se vyhneme postupné expanzi)
+		quadTree = new QuadTree(1, new RectangleF(left, top, size, size));
+
+		// 4) vložíme všechny platné částice
+		foreach (var p in particles)
+		{
+			if (float.IsNaN(p.Position.X) || float.IsNaN(p.Position.Y) ||
+					float.IsInfinity(p.Position.X) || float.IsInfinity(p.Position.Y))
+				continue;
+
+			// uíjistí se, že pozice spadá do root (mělo by ano), ale Insert vrací false, pokud ne
+			quadTree.Insert(p);
+		}
+	}
+
+
+	/*
+	private void RebuildTree()
+	{
+		// pokud pole prázdné, nic nedělej
+		if (particles.Count == 0) return;
+
+		// spočítat BBOX
+		float minX = float.MaxValue, minY = float.MaxValue, maxX = float.MinValue, maxY = float.MinValue;
+		foreach (var p in particles)
+		{
+			if (float.IsNaN(p.Position.X) || float.IsNaN(p.Position.Y)) continue;
+			if (p.Position.X < minX) minX = p.Position.X;
+			if (p.Position.Y < minY) minY = p.Position.Y;
+			if (p.Position.X > maxX) maxX = p.Position.X;
+			if (p.Position.Y > maxY) maxY = p.Position.Y;
+		}
+
+		// trochou paddingu a aby byl čtverec
+		float padding = 10f;
+		float width = Math.Max(1f, (maxX - minX) + padding * 2f);
+		float height = Math.Max(1f, (maxY - minY) + padding * 2f);
+		float size = Math.Max(width, height);
+		float cx = (minX + maxX) / 2f;
+		float cy = (minY + maxY) / 2f;
+		float left = cx - size / 2f;
+		float top = cy - size / 2f;
+
+		// vytvořit nový root místo ExpandBoundary
+		quadTree = new QuadTree(1, new RectangleF(left, top, size, size));
+
+		// vložit všechny částice
+		foreach (var p in particles)
+		{
+			if (float.IsNaN(p.Position.X) || float.IsNaN(p.Position.Y)) continue;
+			quadTree.Insert(p);
+		}
+	}
+	*/
 
 	/*private void RebuildTree()
 	{
@@ -280,8 +401,40 @@ class ParticleForm : Form
 	}
 	*/
 
+
+	private void DumpMaxVals()
+	{
+		float maxSpeed = 0f, maxAccel = 0f;
+		foreach (var p in particles)
+		{
+			float v = p.Velocity.Length();
+			float a = p.Acceleration.Length();
+			if (v > maxSpeed) maxSpeed = v;
+			if (a > maxAccel) maxAccel = a;
+		}
+		Console.WriteLine($"MaxSpeed={maxSpeed}, MaxAccel={maxAccel}");
+	}
+
+
 	private void StepSimulation()
 	{
+
+		// rychlý monitor
+		float maxPos=0f,mp = 0f;
+		foreach (var p in particles)
+		{
+			maxPos = MathF.Max(MathF.Abs(p.Position.X), MathF.Abs(p.Position.Y));
+			if (maxPos>mp) mp = maxPos;
+		}
+
+		if (mp > 1e5f)
+		{
+			timer.Stop();
+			Console.WriteLine("Positions exploded beyond 1e6 — simulation paused.");
+			return;
+		}
+
+
 		// 1) Přestavíme strom podle aktuálních pozic
 		RebuildTree();
 
@@ -294,6 +447,8 @@ class ParticleForm : Form
 
 		// 4) Aktualizujeme simul. čas (pokud ho používáš)
 		simulationTime += (float)physics.DeltaTime;
+		if ((int)physics.DeltaTime % 100 == 0) 
+			LogStats();
 	}
 	private void StepSimulation_()
 	{
@@ -363,7 +518,12 @@ class ParticleForm : Form
 	protected override void OnPaint(PaintEventArgs e)
 	{
 		var g = e.Graphics;
-		quadTree.Draw(g);
+		base.OnPaint(e);
+		var clip = e.ClipRectangle;
+		bool drawQuadTree = true;
+		if (drawQuadTree)
+			quadTree?.Draw(e.Graphics, e.ClipRectangle, maxDepth: 8);
+		//quadTree?.Draw(e.Graphics, clip, maxDepth: 12);
 
 		foreach (var p in particles)
 		{
