@@ -10,6 +10,7 @@ public class Particle
 	public float Mass;
 	public float TimeStep { get; set; } = 0.1f;
 	public float NextUpdateTime { get; set; } = 0f; // kdy bude další aktualizace
+	public int StepLevel;          // k, kde TimeStep = baseStep / (1<<StepLevel)
 	public Particle(int id, Vector2 position, Vector2 velocity, float mass)
 	{
 		Id = id;

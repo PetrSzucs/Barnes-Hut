@@ -14,8 +14,14 @@ class ParticleForm : Form
 	private PhysicsEngine physics;
 	private Timer timer;
 	private Random rnd = new Random();
-	private ScenarioType scenario = ScenarioType.Benchmark; // vybraný scénář
-	private int logCounter=0;
+	private ScenarioType scenario = ScenarioType.RandomCluster; // vybraný scénář
+	// Block scheduler settings
+	private int maxStepLevel = 6;            // max k (baseStep / 2^k), uprav dle potřeby
+	private float baseStep = 1.6f;           // základní (globální) deltaTime
+	private float smallestStep;              // baseStep / 2^maxStepLevel	
+
+	// Statistika / diagnostika	
+	private int stepCounter = 0;
 
 	public ParticleForm(List<Particle> particles, QuadTree quadTree, PhysicsEngine physics)
 	{
@@ -23,18 +29,19 @@ class ParticleForm : Form
 		this.quadTree = quadTree;
 		this.physics = physics;
 
+		smallestStep = baseStep / (1 << maxStepLevel);
 		DoubleBuffered = true;
 		ClientSize = new Size(850, 850);
 		Text = "Barnes-Hut Simulation";			
 
 		timer = new Timer { Interval = 16 }; // cca 60 FPS
-		timer.Tick += (s, e) => { StepSimulation(); Invalidate(); };
+		timer.Tick += (s, e) => { StepSimulation_BlockScheduler(); Invalidate(); };
 		InitializeParticles();
 
 		// 🧠 Zastavíme vykreslování během benchmarku
 		timer.Stop();
 	
-		RunBenchmark(100);
+		//RunBenchmark(100);
 
 		timer.Start();
 	}
@@ -52,9 +59,9 @@ class ParticleForm : Form
 	{
 		if (particles == null || particles.Count == 0 || quadTree == null) return;
 
-		// rozsah pozic
 		float minX = float.MaxValue, minY = float.MaxValue;
 		float maxX = float.MinValue, maxY = float.MinValue;
+		float maxSpeed = 0f, maxAccel = 0f;
 		foreach (var p in particles)
 		{
 			if (float.IsNaN(p.Position.X) || float.IsNaN(p.Position.Y)) continue;
@@ -62,12 +69,15 @@ class ParticleForm : Form
 			if (p.Position.Y < minY) minY = p.Position.Y;
 			if (p.Position.X > maxX) maxX = p.Position.X;
 			if (p.Position.Y > maxY) maxY = p.Position.Y;
+
+			maxSpeed = MathF.Max(maxSpeed, p.Velocity.Length());
+			maxAccel = MathF.Max(maxAccel, p.Acceleration.Length());
 		}
 
 		var bounds = quadTree.Bounds;
-		Console.WriteLine($"[Log {logCounter++}] Particles: {particles.Count}, pos min=({minX:F1},{minY:F1}) max=({maxX:F1},{maxY:F1})");
+		Console.WriteLine($"[Log {stepCounter}] Particles: {particles.Count}, pos min=({minX:F1},{minY:F1}) max=({maxX:F1},{maxY:F1})");
 		Console.WriteLine($" Root bounds: X={bounds.X:F1} Y={bounds.Y:F1} W={bounds.Width:F1} H={bounds.Height:F1}");
-		Console.WriteLine($" Nodes={quadTree.CountNodes()}, Leaves={quadTree.CountLeaves()}, MaxDepth={quadTree.MaxDepth()}");
+		Console.WriteLine($" MaxSpeed={maxSpeed:F2}, MaxAccel={maxAccel:F2}");
 	}
 
 	private void InitializeParticles()
@@ -97,9 +107,16 @@ class ParticleForm : Form
 				CreateBenchmarkScenario();
 				break;
 		}
+		foreach (var p in particles)
+		{
+			p.StepLevel = 0;
+			p.TimeStep = baseStep;           // baseStep / (1<<StepLevel)
+			p.NextUpdateTime = 0f;
+			p.Acceleration = Vector2.Zero;
+		}
 	}
 
-	private void CreateBenchmarkScenario()
+	private void CreateBenchmarkScenario_()
 	{
 		
 		  particles.Clear();
@@ -119,9 +136,7 @@ class ParticleForm : Form
 		Console.WriteLine($"Benchmark scénář vytvořen: {particles.Count} částic");
 	}
 	
-
-
-	private void CreateBenchmarkScenario_()
+	private void CreateBenchmarkScenario()
 	{
 		int gridSize = 100;       // 100 × 100 = 10 000 částic
 		float spacing = 8f;       // vzdálenost mezi částicemi
@@ -409,14 +424,193 @@ class ParticleForm : Form
 		{
 			float v = p.Velocity.Length();
 			float a = p.Acceleration.Length();
-			if (v > maxSpeed) maxSpeed = v;
-			if (a > maxAccel) maxAccel = a;
+			if (v > maxSpeed) 
+				maxSpeed = v;
+			if (a > maxAccel) 
+				maxAccel = a;
 		}
 		Console.WriteLine($"MaxSpeed={maxSpeed}, MaxAccel={maxAccel}");
 	}
 
+	private void StepSimulation_BlockScheduler()
+	{
+		// Jeden "frame" = jeden baseStep = složený z 2^maxStepLevel subkroků
+		int subSteps = 1 << maxStepLevel;
+		float dtSmall = smallestStep; // baseStep / subSteps
 
-	private void StepSimulation()
+		// Pro bezpečí: omez počet iterací pokud se UI nestíhá
+		for (int sub = 0; sub < subSteps; sub++)
+		{
+			simulationTime += dtSmall;
+
+			// 1) Build QuadTree from current positions (robustní: nový tree každé sub-krok)
+			QuadTree localTree = BuildTreeFromParticles(); // vytvoří nový tree uvidíš níže
+
+			// 2) Přepočti akcelerace pro všechny částice podle aktuálního tree
+			//    (pomalejší, ale bezpečné; později optimalizujeme)
+			Parallel.ForEach(particles, p =>
+			{
+				// skip invalid positions
+				if (float.IsNaN(p.Position.X) || float.IsNaN(p.Position.Y) ||
+						float.IsInfinity(p.Position.X) || float.IsInfinity(p.Position.Y))
+				{
+					p.Acceleration = Vector2.Zero;
+					return;
+				}
+
+				p.Acceleration = localTree.CalculateAcceleration(p, (float)physics.Theta) * (float)physics.G;
+			});
+
+			// 3) KICK-DRIFT pro všechny částice, které mají být aktualizovány v tomto subkroku
+			//    Particles are selected by StepLevel alignment and NextUpdateTime <= simulationTime
+			var updatedThisSubstep = new List<Particle>();
+
+			// iterate levels from coarse to fine (not strictly necessary, but keeps order)
+			for (int level = 0; level <= maxStepLevel; level++)
+			{
+				// stride: how often this level should run in sub-steps
+				int stride = 1 << (maxStepLevel - level);
+				if (sub % stride != 0) continue;
+
+				float dtForLevel = baseStep / (1 << level);
+
+				// process all particles that have this StepLevel and NextUpdateTime <= simulationTime
+				foreach (var p in particles)
+				{
+					if (p.StepLevel != level) continue;
+					if (p.NextUpdateTime > simulationTime) continue;
+
+					// FIRST HALF-KICK (v += 0.5 * a * dt)
+					p.Velocity += 0.5f * p.Acceleration * dtForLevel;
+
+					// DRIFT (r += v * dt)
+					p.Position += p.Velocity * dtForLevel;
+
+					// schedule next update time
+					p.NextUpdateTime = simulationTime + dtForLevel;
+
+					updatedThisSubstep.Add(p);
+				}
+			}
+
+			// 4) Po všech driftech v tomto subkroku rebuildneme strom a přepočteme akcelerace
+			//    (opět: bezpečné, dává konzistentní hodnoty pro druhý half-kick)
+			localTree = BuildTreeFromParticles();
+
+			Parallel.ForEach(particles, p =>
+			{
+				if (float.IsNaN(p.Position.X) || float.IsNaN(p.Position.Y) ||
+						float.IsInfinity(p.Position.X) || float.IsInfinity(p.Position.Y))
+				{
+					p.Acceleration = Vector2.Zero;
+					return;
+				}
+
+				p.Acceleration = localTree.CalculateAcceleration(p, (float)physics.Theta) * (float)physics.G;
+			});
+
+			// 5) Druhá polovina kicku (pro ty, které jsme driftovali)
+			foreach (var p in updatedThisSubstep)
+			{
+				float dtForLevel = p.TimeStep; // p.TimeStep by měl odpovídat baseStep / 2^StepLevel
+																			 // safety: pokud TimeStep neodpovídá, přepočti z StepLevel
+				if (dtForLevel <= 0) dtForLevel = baseStep / (1 << p.StepLevel);
+
+				p.Velocity += 0.5f * p.Acceleration * dtForLevel;
+
+				// jednoduchá adaptivní úprava StepLevel podle aktuální akcelerace
+				AdaptStepLevel(p);
+			}
+
+			// 6) Po subkroku můžeš (volitelně) logovat statistiky
+			stepCounter++;
+			if (stepCounter % 500 == 0)
+				LogStats();
+		}
+
+		// Po dokončení všech subkroků nastav quadratree pro UI na poslední built tree
+		// (aby vykreslování odpovídalo pozicím)
+		quadTree = BuildTreeFromParticles();
+	}
+
+	private QuadTree BuildTreeFromParticles()
+	{
+		// pokud nejsou particles, vytvoř malý tree
+		if (particles == null || particles.Count == 0)
+			return new QuadTree(1, new RectangleF(0, 0, 1, 1));
+
+		float minX = float.MaxValue, minY = float.MaxValue;
+		float maxX = float.MinValue, maxY = float.MinValue;
+		bool anyValid = false;
+
+		foreach (var p in particles)
+		{
+			if (float.IsNaN(p.Position.X) || float.IsNaN(p.Position.Y) ||
+					float.IsInfinity(p.Position.X) || float.IsInfinity(p.Position.Y))
+				continue;
+
+			anyValid = true;
+			if (p.Position.X < minX) minX = p.Position.X;
+			if (p.Position.Y < minY) minY = p.Position.Y;
+			if (p.Position.X > maxX) maxX = p.Position.X;
+			if (p.Position.Y > maxY) maxY = p.Position.Y;
+		}
+
+		if (!anyValid)
+			return new QuadTree(1, new RectangleF(0, 0, 1, 1));
+
+		const float padding = 10f;
+		float width = Math.Max(1f, (maxX - minX) + padding * 2f);
+		float height = Math.Max(1f, (maxY - minY) + padding * 2f);
+		float size = Math.Max(width, height);
+		float cx = (minX + maxX) / 2f;
+		float cy = (minY + maxY) / 2f;
+		float left = cx - size / 2f;
+		float top = cy - size / 2f;
+
+		var tree = new QuadTree(1, new RectangleF(left, top, size, size));
+
+		foreach (var p in particles)
+		{
+			if (float.IsNaN(p.Position.X) || float.IsNaN(p.Position.Y) ||
+					float.IsInfinity(p.Position.X) || float.IsInfinity(p.Position.Y))
+				continue;
+
+			tree.Insert(p);
+		}
+
+		return tree;
+	}
+
+	private void AdaptStepLevel(Particle p)
+	{
+		// parametry (doladíš)
+		float accel = p.Acceleration.Length();
+		float upThreshold = 15f;    // pokud akcelerace > upThreshold, sniž TimeStep (k++)
+		float downThreshold = 5f;  // pokud akcelerace < downThreshold, zvětši TimeStep (k--)
+
+		int level = p.StepLevel;
+		if (accel > upThreshold && level < maxStepLevel)
+		{
+			level++;
+		}
+		else if (accel < downThreshold && level > 0)
+		{
+			level--;
+		}
+
+		if (level != p.StepLevel)
+		{
+			p.StepLevel = level;
+			p.TimeStep = baseStep / (1 << level);
+			// zarovnat next update time tak, aby byl násobkem smallestStep (optionally)
+			p.NextUpdateTime = simulationTime + p.TimeStep;
+		}
+	}
+
+
+
+	private void StepSimulation__()
 	{
 
 		// rychlý monitor
@@ -486,7 +680,7 @@ class ParticleForm : Form
 		for (int i = 0; i < iterations; i++)
 		{
 			// Klasický krok simulace bez vykreslování
-			StepSimulation();
+			StepSimulation_BlockScheduler();
 			//Console.WriteLine(particles[0].Position);
 		}
 
